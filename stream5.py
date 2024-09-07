@@ -1,45 +1,90 @@
 import streamlit as st
+import numpy as np
+import cv2
+import tempfile
 import pandas as pd
 
-# Load datasets
-@st.cache
-def load_data():
-    bus_stops = pd.read_csv('test1/bus.csv')
-    routes = pd.read_csv('test1/bus.csv')
-    return bus_stops, routes
+# Function to generate a dummy video
+def generate_dummy_video(file_path, num_frames=100, width=640, height=480):
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    out = cv2.VideoWriter(file_path, fourcc, 20.0, (width, height))
 
-# Function to calculate emissions
-def calculate_emissions(distance, fuel_consumption, emissions_factor):
-    return distance * fuel_consumption * emissions_factor / 1000  # in kg CO2
+    for _ in range(num_frames):
+        frame = np.random.randint(0, 255, (height, width, 3), dtype=np.uint8)
+        cv2.putText(frame, "Front Row: {}".format(np.random.randint(0, 5)), (50, 50),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
+        cv2.putText(frame, "Back Row: {}".format(np.random.randint(0, 5)), (50, 100),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2, cv2.LINE_AA)
+        cv2.putText(frame, "Age Group: {}".format(np.random.choice(['0-18', '19-35', '36-60', '60+'])), (50, 150),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
+        out.write(frame)
 
-def main():
-    st.title('Carbon Emission Tracking for Bus Routes')
+    out.release()
 
-    # Load data
-    bus, routes = load_data()
-
-    st.sidebar.header('Select Route')
-    route_id = st.sidebar.selectbox('Choose a Route ID:', routes['Route ID'].unique())
+# Function to simulate detection of people
+def detect_people(video_path):
+    video = cv2.VideoCapture(video_path)
+    frame_counts = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
     
-    # Get route details
-    route = routes[routes['Route ID'] == route_id].iloc[0]
-    distance = route['Distance (km)']
-    fuel_consumption = route['Fuel Consumption (L/km)']
-    emissions_factor = route['Emissions Factor (g CO2/L)']
+    # Create lists to hold the detected counts
+    front_row_counts = []
+    back_row_counts = []
+    age_groups = {'0-18': 0, '19-35': 0, '36-60': 0, '60+': 0}
 
-    st.write(f"Route ID: {route_id}")
-    st.write(f"Start Bus Stop ID: {route['Start Bus Stop ID']}")
-    st.write(f"End Bus Stop ID: {route['End Bus Stop ID']}")
-    st.write(f"Distance: {distance} km")
-    st.write(f"Fuel Consumption: {fuel_consumption} L/km")
-    st.write(f"Emissions Factor: {emissions_factor} g CO2/L")
+    for _ in range(frame_counts):
+        ret, frame = video.read()
+        if not ret:
+            break
+        
+        # Simulate detection counts from frame text
+        front_row_count = np.random.randint(0, 5)
+        back_row_count = np.random.randint(0, 5)
+        age_group = np.random.choice(['0-18', '19-35', '36-60', '60+'])
+        
+        front_row_counts.append(front_row_count)
+        back_row_counts.append(back_row_count)
+        age_groups[age_group] += 1
 
-    # Calculate emissions
-    emissions = calculate_emissions(distance, fuel_consumption, emissions_factor)
-    st.write(f"Estimated Carbon Emissions for this Route: {emissions:.2f} kg CO2")
+    video.release()
+    
+    # Convert age group counts to DataFrame
+    age_group_df = pd.DataFrame(list(age_groups.items()), columns=['Age Group', 'Count'])
+    
+    return front_row_counts, back_row_counts, age_group_df
 
-    # Optionally, plot data or additional visualizations
-    st.bar_chart({'Emissions (kg CO2)': [emissions]})
+# Main Streamlit application
+def main():
+    st.title('Bus People Detection')
+
+    # Generate a dummy video file
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as temp_file:
+        generate_dummy_video(temp_file.name)
+        video_path = temp_file.name
+
+    st.video(video_path)  # Display the video in Streamlit
+
+    if st.button('Detect People'):
+        front_row_counts, back_row_counts, age_group_df = detect_people(video_path)
+        
+        if front_row_counts and back_row_counts:
+            # Create DataFrames for counts
+            df_counts = pd.DataFrame({
+                'Frame Number': range(len(front_row_counts)),
+                'Front Row Count': front_row_counts,
+                'Back Row Count': back_row_counts
+            })
+            
+            st.write("Detected People Counts:")
+            st.write(df_counts)
+            
+            st.write("Age Group Distribution:")
+            st.write(age_group_df)
+            
+            # Plot counts over frames
+            st.line_chart(df_counts.set_index('Frame Number')[['Front Row Count', 'Back Row Count']])
+            st.bar_chart(age_group_df.set_index('Age Group'))
+        else:
+            st.write("No people detected or error in detection.")
 
 if __name__ == "__main__":
     main()
